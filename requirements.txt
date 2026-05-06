@@ -1,0 +1,5 @@
+openai>=1.0.0
+openai-whisper>=20231117
+aiohttp>=3.9.0
+aiofiles>=23.2.1
+tqdm>=4.66.0

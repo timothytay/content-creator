@@ -170,18 +170,17 @@ async def tag_clip_async(
 
 async def tag_all_clips_async(clips: list[library.Clip]):
     """Tag all clips concurrently, respecting VISION_CONCURRENCY."""
-    client    = openai.AsyncOpenAI()
     semaphore = asyncio.Semaphore(config.VISION_CONCURRENCY)
-
-    tasks = [tag_clip_async(c, client, semaphore) for c in clips]
 
     print(f"  Tagging {len(clips)} clips with OpenAI Vision "
           f"(concurrency={config.VISION_CONCURRENCY})...")
 
-    results = []
-    for coro in tqdm(asyncio.as_completed(tasks), total=len(tasks), unit="clip"):
-        result = await coro
-        results.append(result)
+    async with openai.AsyncOpenAI() as client:
+        tasks = [tag_clip_async(c, client, semaphore) for c in clips]
+        results = []
+        for coro in tqdm(asyncio.as_completed(tasks), total=len(tasks), unit="clip"):
+            result = await coro
+            results.append(result)
 
     for clip, description, tags in results:
         if description:

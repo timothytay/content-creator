@@ -18,6 +18,7 @@ pip install -r requirements.txt
 ```bash
 python main.py ingest footage/ocean.mp4 footage/wildlife/
 ```
+- Accepts `.mp4` and `.mov` files, or directories containing them
 - Hashes each file — skips if already in library
 - Splits into 4-second clips
 - Extracts 3 frames per clip and vision-tags with GPT-4o

@@ -1,5 +1,5 @@
 """
-ingest.py — Ingest source MP4 files into the persistent clip library.
+ingest.py — Ingest source MP4/MOV files into the persistent clip library.
 
 For each new source file:
   1. Hash it (SHA-256) — skip if already ingested
@@ -228,24 +228,28 @@ def ingest_file(source_path: str | Path):
           f"across {stats['sources']} sources.")
 
 
+VIDEO_EXTENSIONS = {".mp4", ".mov"}
+
+
 def run_ingest(paths: list[str]):
     """CLI entry point — accepts files or directories."""
     library.init_db()
-    mp4_files = []
+    video_files = []
 
     for p in paths:
         path = Path(p)
         if path.is_dir():
-            mp4_files.extend(sorted(path.glob("**/*.mp4")))
-        elif path.suffix.lower() == ".mp4":
-            mp4_files.append(path)
+            for ext in VIDEO_EXTENSIONS:
+                video_files.extend(sorted(path.glob(f"**/*{ext}")))
+        elif path.suffix.lower() in VIDEO_EXTENSIONS:
+            video_files.append(path)
         else:
-            print(f"  Skipping non-MP4: {p}")
+            print(f"  Skipping unsupported format: {p}")
 
-    if not mp4_files:
-        print("No MP4 files found.")
+    if not video_files:
+        print("No video files found (supported: .mp4, .mov).")
         return
 
-    print(f"Found {len(mp4_files)} MP4 file(s) to ingest.")
-    for f in mp4_files:
+    print(f"Found {len(video_files)} video file(s) to ingest.")
+    for f in video_files:
         ingest_file(f)

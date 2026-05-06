@@ -27,11 +27,11 @@ def main():
     # ── ingest ──────────────────────────────────────────────────────────────
     p_ingest = sub.add_parser(
         "ingest",
-        help="Add MP4 source files to the clip library (split + vision-tag).",
+        help="Add video source files to the clip library (split + vision-tag).",
     )
     p_ingest.add_argument(
         "files", nargs="+",
-        help="MP4 files or directories containing MP4 files.",
+        help="MP4 or MOV files, or directories containing them.",
     )
 
     # ── produce ─────────────────────────────────────────────────────────────

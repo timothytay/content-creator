@@ -7,7 +7,7 @@ This tool takes your b-roll footage and a voiceover recording, and automatically
 ## What you'll need before starting
 
 - A Mac (these instructions are written for macOS)
-- Your b-roll footage as `.mp4` files
+- Your b-roll footage as `.mp4` or `.mov` files
 - A voiceover recording as an `.mp3` file
 - An OpenAI account (to pay for the AI that analyses your footage)
 - DaVinci Resolve installed (free version works fine)
@@ -164,8 +164,8 @@ Python isn't installed, or the Terminal window is new and needs the API key set 
 **"OPENAI_API_KEY is not set" or authentication errors**
 You need to set your API key. Run the `export OPENAI_API_KEY=...` command from Step 6 again in the current Terminal window.
 
-**"No MP4 files found"**
-The path you gave doesn't point to your footage folder. Try dragging the folder directly into Terminal to get the correct path.
+**"No video files found"**
+The path you gave doesn't point to your footage folder, or the files aren't `.mp4` or `.mov`. Try dragging the folder directly into Terminal to get the correct path.
 
 **"No tagged clips in library. Run ingest first."**
 You need to ingest your b-roll footage before producing a video. Run the ingest command from Part 1.

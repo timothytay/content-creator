@@ -85,11 +85,16 @@ def extract_frames(clip_path: str, n: int = config.FRAMES_PER_CLIP) -> list[Path
     Returns list of temp file paths (caller must clean up).
     """
     tmpdir = Path(tempfile.mkdtemp(dir=config.FRAMES_DIR))
-    fps_expr = f"{n}/{config.CLIP_DURATION}"
+
+    # Use actual clip duration so short tail clips still produce frames.
+    # fps=n/duration spreads exactly n frames across however long the clip is.
+    duration = max(probe_duration(clip_path), 0.1)
+    fps_expr = f"{n}/{duration}"
 
     subprocess.run([
         "ffmpeg", "-i", clip_path,
         "-vf", f"fps={fps_expr},scale=640:-1",
+        "-frames:v", str(n),   # cap output in case of rounding
         "-q:v", "3",
         str(tmpdir / "frame_%02d.jpg"),
     ], check=True, capture_output=True)

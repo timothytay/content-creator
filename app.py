@@ -3,6 +3,7 @@ app.py — Web UI for the b-roll pipeline.
 Run with: python3 app.py
 """
 
+import json
 import queue
 import shutil
 import sys
@@ -13,6 +14,25 @@ import gradio as gr
 
 import config
 import library
+
+SETTINGS_FILE = Path("ui_settings.json")
+
+
+# ── Settings persistence ───────────────────────────────────────────────────────
+
+def _load_settings() -> dict:
+    if SETTINGS_FILE.exists():
+        try:
+            return json.loads(SETTINGS_FILE.read_text())
+        except Exception:
+            pass
+    return {}
+
+
+def _save_settings(key: str, value):
+    s = _load_settings()
+    s[key] = value
+    SETTINGS_FILE.write_text(json.dumps(s, indent=2))
 
 
 # ── Stdout capture ─────────────────────────────────────────────────────────────
@@ -69,7 +89,6 @@ def _stream(fn, *args):
 # ── Helpers ────────────────────────────────────────────────────────────────────
 
 def _file_path(f) -> str | None:
-    """Safely extract a path string from a Gradio file value."""
     if f is None:
         return None
     return f if isinstance(f, str) else getattr(f, "name", str(f))
@@ -109,7 +128,8 @@ def ingest(files, folder_path):
 
 # ── Produce handler ────────────────────────────────────────────────────────────
 
-def produce(voiceover_file, output_name, min_clips, max_clips, min_gap, max_gap):
+def produce(voiceover_file, output_name, footage_folder, min_clips, max_clips, min_gap, max_gap):
+    from ingest import run_ingest
     from produce import run_produce
 
     vo_path = _file_path(voiceover_file)
@@ -127,13 +147,15 @@ def produce(voiceover_file, output_name, min_clips, max_clips, min_gap, max_gap)
         yield "⚠ Min gap cannot exceed max gap.", None, None, None
         return
 
-    # Apply UI settings to config at runtime
     config.GROUP_MIN_CLIPS = min_clips
     config.GROUP_MAX_CLIPS = max_clips
     config.GAP_MIN_SEC     = min_gap
     config.GAP_MAX_SEC     = max_gap
 
-    # Copy voiceover next to output so the FCPXML path stays permanent
+    footage = footage_folder.strip() if footage_folder else ""
+    if footage:
+        _save_settings("footage_folder", footage)
+
     out = (output_name.strip() or "output")
     if not out.endswith(".mp4"):
         out += ".mp4"
@@ -144,6 +166,21 @@ def produce(voiceover_file, output_name, min_clips, max_clips, min_gap, max_gap)
     if Path(vo_path).resolve() != local_vo:
         shutil.copy(vo_path, local_vo)
 
+    output = ""
+
+    # ── Phase 1: ingest new footage if a folder is set ────────────────────────
+    if footage:
+        output += f"── Auto-ingesting from: {footage}\n"
+        yield output, None, None, None
+
+        for chunk in _stream(run_ingest, [footage]):
+            output = chunk
+            yield output, None, None, None
+
+        output += "\n"
+        yield output, None, None, None
+
+    # ── Phase 2: produce ──────────────────────────────────────────────────────
     results: dict = {}
 
     def _run():
@@ -152,9 +189,8 @@ def produce(voiceover_file, output_name, min_clips, max_clips, min_gap, max_gap)
         results["fcpxml"]   = str(out_path.with_suffix(".fcpxml"))
         results["schedule"] = str(out_path.with_suffix(".schedule.json"))
 
-    output = ""
     for chunk in _stream(_run):
-        output = chunk
+        output = output + chunk[len(output):]   # append only new text
         yield output, None, None, None
 
     yield (
@@ -168,6 +204,8 @@ def produce(voiceover_file, output_name, min_clips, max_clips, min_gap, max_gap)
 # ── UI layout ──────────────────────────────────────────────────────────────────
 
 def build_ui() -> gr.Blocks:
+    settings = _load_settings()
+
     with gr.Blocks(title="B-Roll Pipeline") as app:
 
         gr.Markdown("# B-Roll Pipeline")
@@ -211,7 +249,8 @@ def build_ui() -> gr.Blocks:
             # ── Produce ──────────────────────────────────────────────────────
             with gr.Tab("Produce"):
                 gr.Markdown(
-                    "Generate a b-roll video and DaVinci Resolve timeline from a voiceover MP3."
+                    "Optionally set a footage folder — new clips will be ingested "
+                    "automatically each time you produce."
                 )
                 with gr.Row():
                     with gr.Column(scale=1):
@@ -222,6 +261,11 @@ def build_ui() -> gr.Blocks:
                         output_name = gr.Textbox(
                             label="Output filename",
                             value="output.mp4",
+                        )
+                        footage_folder_input = gr.Textbox(
+                            label="Footage folder (auto-ingested before each produce)",
+                            placeholder="/Volumes/SSD/footage/",
+                            value=settings.get("footage_folder", ""),
                         )
 
                         gr.Markdown("### Clips per group")
@@ -267,7 +311,7 @@ def build_ui() -> gr.Blocks:
                 produce_btn.click(
                     fn=produce,
                     inputs=[
-                        voiceover_input, output_name,
+                        voiceover_input, output_name, footage_folder_input,
                         min_clips, max_clips,
                         min_gap, max_gap,
                     ],

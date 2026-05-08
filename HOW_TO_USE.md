@@ -80,53 +80,54 @@ export OPENAI_API_KEY=YOUR_KEY_HERE
 
 ## Using the tool
 
-### Part 1 — Ingest your b-roll footage (do this once per batch of footage)
-
-This step analyses your footage so the tool understands what's in each clip. You only need to do it once per file — the tool remembers everything.
+### Launch the interface
 
 In Terminal, run:
 ```
-python3 main.py ingest /path/to/your/footage/
+python3 app.py
 ```
 
-Replace `/path/to/your/footage/` with the path to your b-roll folder (you can drag the folder into Terminal to get its path).
+Your browser will open automatically with the interface. You won't need to use the Terminal again after this.
 
-You can also add individual files:
-```
-python3 main.py ingest footage/clip1.mp4 footage/clip2.mp4
-```
+---
 
-**What's happening:** The tool is splitting each video into 4-second clips, taking snapshots from each clip, and sending them to GPT-4o to understand what's visually in each one. This costs a small amount of OpenAI credit — typically a few cents per minute of footage.
+### Part 1 — Ingest your b-roll footage (Ingest tab)
 
-When it finishes you'll see a summary like:
-```
-✓ Done. Library: 847/847 clips tagged across 3 sources.
-```
+Click the **Ingest** tab. This step analyses your footage so the tool understands what's in each clip. You only need to do it once per file — the tool remembers everything.
 
-### Part 2 — Produce a video from a voiceover
+- **To add individual files:** click the upload area and select your `.mp4` or `.mov` files
+- **To add a whole folder:** paste the folder path into the "Or paste a folder path" box (drag the folder onto the Terminal icon while holding Cmd to copy its path)
 
-Run:
-```
-python3 main.py produce voiceover.mp3 --output my_video.mp4
-```
+Click **Ingest** and watch the log. When it finishes you'll see a summary at the top right showing how many clips are in the library.
 
-Replace `voiceover.mp3` with the path to your voiceover file, and `my_video.mp4` with whatever you want the output called.
+**What's happening:** The tool splits each video into 4-second clips, takes snapshots, and sends them to GPT-4o Mini to understand what's visually in each one. This costs a small amount of OpenAI credit — typically a few cents per minute of footage.
 
-**What's happening:**
-1. Your voiceover is sped up slightly (1.1×) — this is intentional to tighten the pacing
-2. It's transcribed word-by-word with timestamps
-3. GPT-4o splits the transcript into topics
-4. The best-matching b-roll clips are selected and scheduled for each topic
-5. Everything is assembled and exported
+---
 
-When it finishes, you'll have three files next to your voiceover:
+### Part 2 — Produce a video from a voiceover (Produce tab)
+
+Click the **Produce** tab.
+
+1. Upload your voiceover `.mp3` file
+2. Set an output filename (e.g. `my_video.mp4`)
+3. Adjust the clip and gap settings if needed (see below)
+4. Click **Produce**
+
+**Clip group settings:**
+- **Min/Max clips per group** — how many 4-second b-roll clips appear in each burst (default 3–5)
+
+**Blank gap settings:**
+- **Min/Max gap duration** — how long the black placeholder gaps are between clip bursts, in seconds (default 4–8s). These are where your face cam footage goes.
+
+When it finishes, three download links appear on the right:
 
 | File | What it is |
 |---|---|
 | `my_video.mp4` | The assembled b-roll video (no audio) — for reference |
 | `my_video.fcpxml` | **The file you import into DaVinci Resolve** |
 | `my_video.schedule.json` | A text breakdown of the timeline (for reference) |
-| `voiceover_1.1x.mp3` | The sped-up voiceover — already embedded in the timeline |
+
+The sped-up voiceover is already embedded in the FCPXML timeline.
 
 ---
 
@@ -165,7 +166,7 @@ Python isn't installed, or the Terminal window is new and needs the API key set 
 You need to set your API key. Run the `export OPENAI_API_KEY=...` command from Step 6 again in the current Terminal window.
 
 **"No video files found"**
-The path you gave doesn't point to your footage folder, or the files aren't `.mp4` or `.mov`. Try dragging the folder directly into Terminal to get the correct path.
+The folder path you pasted doesn't point to your footage, or the files aren't `.mp4` or `.mov`. Double-check the path — you can verify it by opening Terminal and typing `ls ` then pasting the path.
 
 **"No tagged clips in library. Run ingest first."**
 You need to ingest your b-roll footage before producing a video. Run the ingest command from Part 1.

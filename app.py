@@ -168,7 +168,7 @@ def produce(voiceover_file, output_name, min_clips, max_clips, min_gap, max_gap)
 # ── UI layout ──────────────────────────────────────────────────────────────────
 
 def build_ui() -> gr.Blocks:
-    with gr.Blocks(title="B-Roll Pipeline", theme=gr.themes.Soft()) as app:
+    with gr.Blocks(title="B-Roll Pipeline") as app:
 
         gr.Markdown("# B-Roll Pipeline")
 
@@ -200,7 +200,6 @@ def build_ui() -> gr.Blocks:
                             lines=18,
                             max_lines=40,
                             interactive=False,
-                            show_copy_button=True,
                         )
 
                 ingest_btn.click(
@@ -259,7 +258,6 @@ def build_ui() -> gr.Blocks:
                             lines=18,
                             max_lines=40,
                             interactive=False,
-                            show_copy_button=True,
                         )
                         gr.Markdown("### Output files")
                         out_video    = gr.File(label="Video (.mp4)")
@@ -283,4 +281,4 @@ def build_ui() -> gr.Blocks:
 
 if __name__ == "__main__":
     library.init_db()
-    build_ui().launch(inbrowser=True)
+    build_ui().launch(inbrowser=True, theme=gr.themes.Soft())

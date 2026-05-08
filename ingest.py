@@ -71,7 +71,7 @@ def split_into_clips(source_path: Path, dest_dir: Path, source_id: str) -> list[
         clips.append(library.Clip(
             id=clip_id,
             source_id=source_id,
-            clip_path=str(clip_file.resolve()),
+            clip_path=str(clip_file.relative_to(config.LIBRARY_ROOT)),
             start_sec=start_sec,
             end_sec=end_sec,
         ))

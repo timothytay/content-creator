@@ -318,11 +318,78 @@ def build_ui() -> gr.Blocks:
                     outputs=[produce_log, out_video, out_fcpxml, out_schedule],
                 )
 
+            # ── Library ──────────────────────────────────────────────────────
+            with gr.Tab("Library"):
+                gr.Markdown(
+                    "Export your library to share with someone else, or import one you received. "
+                    "The zip contains all clip files and the tag database — no re-ingesting needed."
+                )
+                with gr.Row():
+                    with gr.Column(scale=1):
+                        gr.Markdown("### Export")
+                        gr.Markdown(
+                            "Creates a zip of your entire clip library. "
+                            "Size depends on how much footage you've ingested."
+                        )
+                        export_btn = gr.Button("Export library", variant="primary")
+                        export_log = gr.Textbox(label="Log", lines=6, interactive=False)
+                        export_file = gr.File(label="Download")
+
+                    with gr.Column(scale=1):
+                        gr.Markdown("### Import")
+                        gr.Markdown(
+                            "Import a library zip from someone else. "
+                            "New clips are merged in — your existing library is not overwritten."
+                        )
+                        import_file_input = gr.File(
+                            label="Library zip",
+                            file_types=[".zip"],
+                        )
+                        import_btn = gr.Button("Import library", variant="primary")
+                        import_log = gr.Textbox(label="Log", lines=6, interactive=False)
+                        import_stats = gr.Markdown(_stats_md())
+
+                export_btn.click(
+                    fn=export_library,
+                    inputs=[],
+                    outputs=[export_log, export_file],
+                )
+                import_btn.click(
+                    fn=import_library,
+                    inputs=[import_file_input],
+                    outputs=[import_log, import_stats],
+                )
+
     return app
 
 
 # ── Entry point ────────────────────────────────────────────────────────────────
 
+def export_library():
+    dest = Path("broll_library_export.zip")
+    output = ""
+    for chunk in _stream(library.export_library, dest):
+        output = chunk
+        yield output, None
+
+    yield output, str(dest) if dest.exists() else None
+
+
+def import_library(zip_file):
+    zip_path = _file_path(zip_file)
+    if not zip_path:
+        yield "⚠ No file provided.", _stats_md()
+        return
+
+    output = ""
+    for chunk in _stream(library.import_library, Path(zip_path)):
+        output = chunk
+        yield output, _stats_md()
+
+    yield output, _stats_md()
+
+
 if __name__ == "__main__":
     library.init_db()
+    library.migrate_to_relative_paths()
     build_ui().launch(inbrowser=True, theme=gr.themes.Soft())

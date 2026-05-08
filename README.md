@@ -73,7 +73,6 @@ Edit `config.py` to change:
 | `GROUP_MIN_CLIPS` / `GROUP_MAX_CLIPS` | `3` / `5` | Clips per group |
 | `GAP_MIN_SEC` / `GAP_MAX_SEC` | `4` / `8` | Blank gap range in seconds |
 | `VISION_CONCURRENCY` | `12` | Parallel GPT-4o vision calls during ingest |
-| `WHISPER_MODEL` | `large-v3` | Whisper transcription model |
 | `OUTPUT_RESOLUTION` | `1920x1080` | Output video resolution |
 | `OUTPUT_FPS` | `30` | Output frame rate |
 

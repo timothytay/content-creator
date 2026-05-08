@@ -4,8 +4,8 @@ produce.py — Turn a voiceover MP3 into a fully scheduled b-roll video.
 Steps
 ─────
   1. Speed up the voiceover by 1.1× (FFmpeg atempo)
-  2. Transcribe with Whisper (word-level timestamps)
-  3. Segment the transcript into topics (Claude)
+  2. Transcribe with OpenAI Whisper API (word-level timestamps)
+  3. Segment the transcript into topics (OpenAI)
   4. Schedule clip groups to cover the full duration (scheduler.py)
   5. Assemble the output video (assembler.py)
 """
@@ -17,7 +17,6 @@ import tempfile
 from pathlib import Path
 
 import openai
-import whisper
 
 import assembler
 import config
@@ -47,36 +46,34 @@ def speed_up_audio(input_path: Path, factor: float = config.VOICEOVER_SPEED) -> 
 
 def transcribe(audio_path: Path) -> dict:
     """
-    Run Whisper and return:
+    Transcribe via the OpenAI Whisper API and return:
       {
         "text": "...",
         "duration": 123.4,
         "words": [{"word": "hello", "start": 0.0, "end": 0.4}, ...]
       }
     """
-    print(f"  Transcribing with Whisper ({config.WHISPER_MODEL})...")
-    config.WHISPER_CACHE.mkdir(parents=True, exist_ok=True)
-    model  = whisper.load_model(config.WHISPER_MODEL, download_root=str(config.WHISPER_CACHE))
-    result = model.transcribe(
-        str(audio_path),
-        word_timestamps=True,
-        verbose=False,
-    )
+    print("  Transcribing with OpenAI Whisper API...")
+    client = openai.OpenAI()
 
-    words = []
-    for seg in result["segments"]:
-        for w in seg.get("words", []):
-            words.append({
-                "word":  w["word"].strip(),
-                "start": w["start"],
-                "end":   w["end"],
-            })
+    with open(audio_path, "rb") as f:
+        result = client.audio.transcriptions.create(
+            model="whisper-1",
+            file=f,
+            response_format="verbose_json",
+            timestamp_granularities=["word"],
+        )
 
-    duration = words[-1]["end"] if words else result["segments"][-1]["end"]
+    words = [
+        {"word": w.word.strip(), "start": w.start, "end": w.end}
+        for w in (result.words or [])
+    ]
+
+    duration = words[-1]["end"] if words else result.duration
     print(f"  Transcript: {len(words)} words, {duration:.1f}s")
 
     return {
-        "text":     result["text"],
+        "text":     result.text,
         "duration": duration,
         "words":    words,
     }

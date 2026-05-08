@@ -32,6 +32,3 @@ OPENAI_MODEL    = "gpt-4o"
 OUTPUT_RESOLUTION = "1920x1080"
 OUTPUT_FPS        = 30
 
-# ── Whisper ────────────────────────────────────────────────────────────────────
-WHISPER_MODEL = "large-v3"
-WHISPER_CACHE = Path(os.getenv("WHISPER_CACHE", LIBRARY_ROOT / "whisper_cache"))

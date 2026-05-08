@@ -23,7 +23,8 @@ VOICEOVER_SPEED = 1.1        # playback speed multiplier
 
 # ── Vision tagging ─────────────────────────────────────────────────────────────
 VISION_CONCURRENCY  = 12     # parallel OpenAI vision calls during ingest
-PREFILTER_TOP_N     = 30     # clips sent to OpenAI per group for final selection
+PREFILTER_TOP_N     = 15     # clips sent to OpenAI per group for final selection
+SCHEDULE_BATCH_SIZE = 8      # groups per scheduling API call (controls prompt size)
 
 # ── OpenAI model ────────────────────────────────────────────────────────────────
 OPENAI_MODEL    = "gpt-4o"

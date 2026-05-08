@@ -213,39 +213,26 @@ def _build_schedule_prompt(
     return json.dumps({"groups": groups_payload}, indent=2)
 
 
-def assign_clips_with_openai(
-    groups: list[GroupPlan],
+def _assign_batch(
+    client: openai.OpenAI,
+    batch: list[GroupPlan],
     all_available: list[library.Clip],
-    max_retries: int = 3,
+    used_ids: set[str],
+    max_retries: int,
 ) -> list[dict]:
-    """
-    Ask OpenAI to assign clips to groups.
-    Retries if constraints are violated (wrong count, duplicate IDs).
-    Returns list of {index, clip_ids}.
-    """
-    client     = openai.OpenAI()
-    used_ids:  set[str] = set()
-    result_groups: list[dict] = []
-
-    # Build per-group candidate pools (pre-filtered, minus already-used)
-    def fresh_candidates(g: GroupPlan) -> list[library.Clip]:
-        pool = [c for c in all_available if c.id not in used_ids]
-        return prefilter_clips(pool, g)
-
+    """Assign clips for one batch of groups, retrying on constraint violations."""
     for attempt in range(max_retries):
-        # Rebuild candidates excluding globally used IDs
-        candidates_per_group = {g.index: fresh_candidates(g) for g in groups}
+        pool = [c for c in all_available if c.id not in used_ids]
+        candidates_per_group = {g.index: prefilter_clips(pool, g) for g in batch}
 
-        # Validate we have enough candidates
-        for g in groups:
+        for g in batch:
             if len(candidates_per_group[g.index]) < g.clip_count:
                 raise RuntimeError(
                     f"Group {g.index} needs {g.clip_count} clips but only "
                     f"{len(candidates_per_group[g.index])} candidates remain."
                 )
 
-        prompt = _build_schedule_prompt(groups, candidates_per_group)
-
+        prompt = _build_schedule_prompt(batch, candidates_per_group)
         response = client.chat.completions.create(
             model=config.OPENAI_MODEL,
             max_tokens=2048,
@@ -259,33 +246,28 @@ def assign_clips_with_openai(
         raw = re.sub(r"^```json\s*|```$", "", raw, flags=re.MULTILINE).strip()
 
         try:
-            parsed      = json.loads(raw)
-            proposed    = parsed["groups"]
-            all_seen:   set[str] = set()
-            valid       = True
+            proposed  = json.loads(raw)["groups"]
+            all_seen: set[str] = set()
+            valid     = True
 
             for entry in proposed:
-                g      = next(x for x in groups if x.index == entry["index"])
-                ids    = entry["clip_ids"]
-                valid_ids = {c.id for c in candidates_per_group[g.index]}
+                g         = next(x for x in batch if x.index == entry["index"])
+                ids        = entry["clip_ids"]
+                valid_ids  = {c.id for c in candidates_per_group[g.index]}
 
                 if len(ids) != g.clip_count:
                     print(f"  ⚠ Attempt {attempt+1}: group {g.index} has {len(ids)} clips "
                           f"(need {g.clip_count}). Retrying...")
-                    valid = False
-                    break
+                    valid = False; break
                 if len(set(ids)) != len(ids):
                     print(f"  ⚠ Attempt {attempt+1}: duplicate IDs in group {g.index}. Retrying...")
-                    valid = False
-                    break
+                    valid = False; break
                 if not set(ids).issubset(valid_ids):
                     print(f"  ⚠ Attempt {attempt+1}: group {g.index} contains unknown clip IDs. Retrying...")
-                    valid = False
-                    break
+                    valid = False; break
                 if all_seen & set(ids):
                     print(f"  ⚠ Attempt {attempt+1}: cross-group duplicate. Retrying...")
-                    valid = False
-                    break
+                    valid = False; break
                 all_seen.update(ids)
 
             if valid:
@@ -293,6 +275,34 @@ def assign_clips_with_openai(
 
         except (json.JSONDecodeError, KeyError, StopIteration) as e:
             print(f"  ⚠ Attempt {attempt+1}: parse error — {e}")
+
+    raise RuntimeError(f"Scheduler failed to assign batch after {max_retries} attempts.")
+
+
+def assign_clips_with_openai(
+    groups: list[GroupPlan],
+    all_available: list[library.Clip],
+    max_retries: int = 3,
+) -> list[dict]:
+    """
+    Assign clips to all groups in batches to stay within API token limits.
+    Clip uniqueness is enforced across batches via a shared used_ids set.
+    """
+    client   = openai.OpenAI()
+    used_ids: set[str] = set()
+    results:  list[dict] = []
+
+    batch_size = config.SCHEDULE_BATCH_SIZE
+    batches    = [groups[i:i + batch_size] for i in range(0, len(groups), batch_size)]
+
+    for i, batch in enumerate(batches):
+        print(f"  Scheduling batch {i + 1}/{len(batches)} ({len(batch)} groups)...")
+        assigned = _assign_batch(client, batch, all_available, used_ids, max_retries)
+        for entry in assigned:
+            used_ids.update(entry["clip_ids"])
+        results.extend(assigned)
+
+    return results
 
     raise RuntimeError(f"Scheduler failed to produce a valid schedule after {max_retries} attempts.")
 

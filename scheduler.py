@@ -173,86 +173,45 @@ def prefilter_clips(
 
 # ── Step 4: Claude assigns clips to groups ────────────────────────────────────
 
-SCHEDULE_SYSTEM = """You are a video editor assigning b-roll clips to groups in a timeline.
+SCHEDULE_SYSTEM = """You are a video editor selecting b-roll clips for a single group.
 
-Rules — follow these exactly:
-1. Each group must have EXACTLY the requested number of clips (clip_count).
-2. Every clip_id you assign must come from the provided candidate list for that group.
-3. No clip_id may appear more than once across the entire schedule.
-4. Clips within a group should be visually/thematically coherent with each other
-   AND relevant to the voiceover text for that group.
-5. Prefer clips whose tags best match the voiceover topic and text.
+Rules — follow exactly:
+1. Select EXACTLY clip_count clips from the candidates list.
+2. Every id you return must come from the candidates list — do not invent IDs.
+3. Choose clips that are visually and thematically coherent with the voiceover topic.
 
-Respond ONLY with valid JSON (no markdown, no explanation):
-{
-  "groups": [
-    { "index": 0, "clip_ids": ["id1", "id2", "id3"] },
-    ...
-  ]
-}"""
+Respond ONLY with valid JSON (no markdown):
+{"clip_ids": ["id1", "id2", "id3"]}"""
 
 
-def _build_schedule_prompt(
-    groups: list[GroupPlan],
-    candidates_per_group: dict[int, list[library.Clip]],
-) -> tuple[str, dict[str, str]]:
-    """
-    Returns (prompt_json, simple_to_real_id_map).
-    Candidates are assigned simple IDs (g0c0, g0c1 …) so the model can't
-    hallucinate or confuse the cryptic hash-based real clip IDs.
-    """
-    id_map: dict[str, str] = {}  # simple_id -> real clip id
-    groups_payload = []
-
-    for g in groups:
-        candidate_clips = []
-        for i, c in enumerate(candidates_per_group[g.index]):
-            simple_id = f"g{g.index}c{i}"
-            id_map[simple_id] = c.id
-            candidate_clips.append({
-                "id":          simple_id,
-                "description": c.description,
-                "tags":        c.tags,
-            })
-        groups_payload.append({
-            "index":          g.index,
-            "clip_count":     g.clip_count,
-            "vo_topic":       g.vo_topic,
-            "vo_text_sample": g.vo_text[:200],
-            "candidates":     candidate_clips,
-        })
-
-    return json.dumps({"groups": groups_payload}, indent=2), id_map
-
-
-def _assign_batch(
+def _assign_group(
     client: openai.OpenAI,
-    batch: list[GroupPlan],
-    all_available: list[library.Clip],
-    used_ids: set[str],
+    group: GroupPlan,
+    candidates: list[library.Clip],
     max_retries: int,
-) -> list[dict]:
-    """Assign clips for one batch of groups, retrying on constraint violations."""
+) -> list[str]:
+    """Ask OpenAI to select clips for a single group. Returns real clip IDs."""
+    # Map real IDs to simple sequential IDs so the model can't hallucinate them
+    id_map = {f"c{i}": c.id for i, c in enumerate(candidates)}
+    valid_simple = set(id_map)
+
+    payload = json.dumps({
+        "clip_count":     group.clip_count,
+        "vo_topic":       group.vo_topic,
+        "vo_text_sample": group.vo_text[:200],
+        "candidates": [
+            {"id": f"c{i}", "description": c.description, "tags": c.tags}
+            for i, c in enumerate(candidates)
+        ],
+    })
+
     for attempt in range(max_retries):
-        pool = [c for c in all_available if c.id not in used_ids]
-        candidates_per_group = {g.index: prefilter_clips(pool, g) for g in batch}
-
-        for g in batch:
-            if len(candidates_per_group[g.index]) < g.clip_count:
-                raise RuntimeError(
-                    f"Group {g.index} needs {g.clip_count} clips but only "
-                    f"{len(candidates_per_group[g.index])} candidates remain."
-                )
-
-        prompt, id_map = _build_schedule_prompt(batch, candidates_per_group)
-        valid_simple = set(id_map.keys())
-
         response = client.chat.completions.create(
             model=config.REASONING_MODEL,
-            max_completion_tokens=2048,
+            max_completion_tokens=256,
             messages=[
                 {"role": "system", "content": SCHEDULE_SYSTEM},
-                {"role": "user", "content": prompt},
+                {"role": "user", "content": payload},
             ],
         )
 
@@ -260,48 +219,30 @@ def _assign_batch(
         raw = re.sub(r"^```json\s*|```$", "", raw, flags=re.MULTILINE).strip()
 
         try:
-            proposed  = json.loads(raw)["groups"]
-            all_seen: set[str] = set()
-            valid     = True
+            simple_ids = json.loads(raw)["clip_ids"]
 
-            for entry in proposed:
-                g           = next(x for x in batch if x.index == entry["index"])
-                simple_ids  = entry["clip_ids"]
+            if not set(simple_ids).issubset(valid_simple):
+                unknown = set(simple_ids) - valid_simple
+                print(f"  ⚠ Group {group.index} attempt {attempt+1}: unknown IDs {unknown}. Retrying...")
+                continue
 
-                # Reject any ID the model invented that isn't in our map
-                if not set(simple_ids).issubset(valid_simple):
-                    unknown = set(simple_ids) - valid_simple
-                    print(f"  ⚠ Attempt {attempt+1}: group {g.index} returned unknown IDs {unknown}. Retrying...")
-                    valid = False; break
+            real_ids = [id_map[s] for s in simple_ids]
 
-                # Translate simple IDs -> real clip IDs
-                real_ids = [id_map[s] for s in simple_ids]
-                entry["clip_ids"] = real_ids
+            if len(real_ids) != group.clip_count:
+                print(f"  ⚠ Group {group.index} attempt {attempt+1}: got {len(real_ids)} clips "
+                      f"(need {group.clip_count}). Retrying...")
+                continue
 
-                valid_real = {c.id for c in candidates_per_group[g.index]}
+            if len(set(real_ids)) != len(real_ids):
+                print(f"  ⚠ Group {group.index} attempt {attempt+1}: duplicate IDs. Retrying...")
+                continue
 
-                if len(real_ids) != g.clip_count:
-                    print(f"  ⚠ Attempt {attempt+1}: group {g.index} has {len(real_ids)} clips "
-                          f"(need {g.clip_count}). Retrying...")
-                    valid = False; break
-                if len(set(real_ids)) != len(real_ids):
-                    print(f"  ⚠ Attempt {attempt+1}: duplicate IDs in group {g.index}. Retrying...")
-                    valid = False; break
-                if not set(real_ids).issubset(valid_real):
-                    print(f"  ⚠ Attempt {attempt+1}: group {g.index} contains invalid clip IDs. Retrying...")
-                    valid = False; break
-                if all_seen & set(real_ids):
-                    print(f"  ⚠ Attempt {attempt+1}: cross-group duplicate. Retrying...")
-                    valid = False; break
-                all_seen.update(real_ids)
+            return real_ids
 
-            if valid:
-                return proposed
+        except (json.JSONDecodeError, KeyError) as e:
+            print(f"  ⚠ Group {group.index} attempt {attempt+1}: parse error — {e}")
 
-        except (json.JSONDecodeError, KeyError, StopIteration) as e:
-            print(f"  ⚠ Attempt {attempt+1}: parse error — {e}")
-
-    raise RuntimeError(f"Scheduler failed to assign batch after {max_retries} attempts.")
+    raise RuntimeError(f"Failed to assign group {group.index} after {max_retries} attempts.")
 
 
 def assign_clips_with_openai(
@@ -310,26 +251,29 @@ def assign_clips_with_openai(
     max_retries: int = 3,
 ) -> list[dict]:
     """
-    Assign clips to all groups in batches to stay within API token limits.
-    Clip uniqueness is enforced across batches via a shared used_ids set.
+    Assign clips one group at a time. Cross-group uniqueness is guaranteed
+    structurally — used IDs are removed from the pool before each call.
     """
     client   = openai.OpenAI()
     used_ids: set[str] = set()
     results:  list[dict] = []
 
-    batch_size = config.SCHEDULE_BATCH_SIZE
-    batches    = [groups[i:i + batch_size] for i in range(0, len(groups), batch_size)]
+    for group in groups:
+        pool = [c for c in all_available if c.id not in used_ids]
+        candidates = prefilter_clips(pool, group)
 
-    for i, batch in enumerate(batches):
-        print(f"  Scheduling batch {i + 1}/{len(batches)} ({len(batch)} groups)...")
-        assigned = _assign_batch(client, batch, all_available, used_ids, max_retries)
-        for entry in assigned:
-            used_ids.update(entry["clip_ids"])
-        results.extend(assigned)
+        if len(candidates) < group.clip_count:
+            raise RuntimeError(
+                f"Group {group.index} needs {group.clip_count} clips but only "
+                f"{len(candidates)} candidates remain."
+            )
+
+        real_ids = _assign_group(client, group, candidates, max_retries)
+        used_ids.update(real_ids)
+        results.append({"index": group.index, "clip_ids": real_ids})
+        print(f"  Group {group.index:02d} ✓  [{group.vo_topic}]")
 
     return results
-
-    raise RuntimeError(f"Scheduler failed to produce a valid schedule after {max_retries} attempts.")
 
 
 # ── Public entry point ─────────────────────────────────────────────────────────
@@ -370,8 +314,8 @@ def schedule(
     # 3. Annotate with topics
     groups = annotate_groups_with_topics(groups, topic_windows, word_timestamps)
 
-    # 4. OpenAI assigns clips
-    print("  Asking OpenAI to match clips to groups...")
+    # 4. OpenAI assigns clips (one group at a time)
+    print(f"  Asking OpenAI to assign clips ({len(groups)} groups)...")
     raw_assignments = assign_clips_with_openai(groups, all_clips)
 
     # 5. Build resolved ScheduledGroup list

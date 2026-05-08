@@ -24,7 +24,6 @@ VOICEOVER_SPEED = 1.1        # playback speed multiplier
 # ── Vision tagging ─────────────────────────────────────────────────────────────
 VISION_CONCURRENCY  = 12     # parallel OpenAI vision calls during ingest
 PREFILTER_TOP_N     = 15     # clips sent to OpenAI per group for final selection
-SCHEDULE_BATCH_SIZE = 8      # groups per scheduling API call (controls prompt size)
 
 # ── OpenAI models ───────────────────────────────────────────────────────────────
 VISION_MODEL    = "gpt-5.4-mini"  # vision tagging during ingest ($0.75/$4.50 per MTok)

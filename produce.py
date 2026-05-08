@@ -55,7 +55,8 @@ def transcribe(audio_path: Path) -> dict:
       }
     """
     print(f"  Transcribing with Whisper ({config.WHISPER_MODEL})...")
-    model  = whisper.load_model(config.WHISPER_MODEL)
+    config.WHISPER_CACHE.mkdir(parents=True, exist_ok=True)
+    model  = whisper.load_model(config.WHISPER_MODEL, download_root=str(config.WHISPER_CACHE))
     result = model.transcribe(
         str(audio_path),
         word_timestamps=True,

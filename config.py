@@ -34,3 +34,4 @@ OUTPUT_FPS        = 30
 
 # ── Whisper ────────────────────────────────────────────────────────────────────
 WHISPER_MODEL = "large-v3"
+WHISPER_CACHE = Path(os.getenv("WHISPER_CACHE", Path.home() / ".cache" / "whisper"))

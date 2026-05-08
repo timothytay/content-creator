@@ -111,7 +111,7 @@ def segment_topics(transcript: dict) -> list[dict]:
 
     response = client.chat.completions.create(
         model=config.REASONING_MODEL,
-        max_tokens=1024,
+        max_completion_tokens=1024,
         messages=[
             {"role": "system", "content": TOPIC_SYSTEM},
             {"role": "user", "content": user_msg},

@@ -249,7 +249,7 @@ def _assign_batch(
 
         response = client.chat.completions.create(
             model=config.REASONING_MODEL,
-            max_tokens=2048,
+            max_completion_tokens=2048,
             messages=[
                 {"role": "system", "content": SCHEDULE_SYSTEM},
                 {"role": "user", "content": prompt},

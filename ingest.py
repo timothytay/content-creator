@@ -154,7 +154,7 @@ async def tag_clip_async(
             try:
                 response = await client.chat.completions.create(
                     model=config.VISION_MODEL,
-                    max_tokens=512,
+                    max_completion_tokens=512,
                     messages=[
                         {"role": "system", "content": TAGGING_PROMPT},
                         {"role": "user", "content": image_blocks},

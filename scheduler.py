@@ -195,22 +195,34 @@ Respond ONLY with valid JSON (no markdown, no explanation):
 def _build_schedule_prompt(
     groups: list[GroupPlan],
     candidates_per_group: dict[int, list[library.Clip]],
-) -> str:
+) -> tuple[str, dict[str, str]]:
+    """
+    Returns (prompt_json, simple_to_real_id_map).
+    Candidates are assigned simple IDs (g0c0, g0c1 …) so the model can't
+    hallucinate or confuse the cryptic hash-based real clip IDs.
+    """
+    id_map: dict[str, str] = {}  # simple_id -> real clip id
     groups_payload = []
+
     for g in groups:
-        candidate_clips = [
-            {"id": c.id, "description": c.description, "tags": c.tags}
-            for c in candidates_per_group[g.index]
-        ]
+        candidate_clips = []
+        for i, c in enumerate(candidates_per_group[g.index]):
+            simple_id = f"g{g.index}c{i}"
+            id_map[simple_id] = c.id
+            candidate_clips.append({
+                "id":          simple_id,
+                "description": c.description,
+                "tags":        c.tags,
+            })
         groups_payload.append({
             "index":          g.index,
-            "clip_count":     g.clip_count,   # MUST be exactly this many
+            "clip_count":     g.clip_count,
             "vo_topic":       g.vo_topic,
             "vo_text_sample": g.vo_text[:200],
             "candidates":     candidate_clips,
         })
 
-    return json.dumps({"groups": groups_payload}, indent=2)
+    return json.dumps({"groups": groups_payload}, indent=2), id_map
 
 
 def _assign_batch(
@@ -232,9 +244,11 @@ def _assign_batch(
                     f"{len(candidates_per_group[g.index])} candidates remain."
                 )
 
-        prompt = _build_schedule_prompt(batch, candidates_per_group)
+        prompt, id_map = _build_schedule_prompt(batch, candidates_per_group)
+        valid_simple = set(id_map.keys())
+
         response = client.chat.completions.create(
-            model=config.OPENAI_MODEL,
+            model=config.REASONING_MODEL,
             max_tokens=2048,
             messages=[
                 {"role": "system", "content": SCHEDULE_SYSTEM},
@@ -251,24 +265,35 @@ def _assign_batch(
             valid     = True
 
             for entry in proposed:
-                g         = next(x for x in batch if x.index == entry["index"])
-                ids        = entry["clip_ids"]
-                valid_ids  = {c.id for c in candidates_per_group[g.index]}
+                g           = next(x for x in batch if x.index == entry["index"])
+                simple_ids  = entry["clip_ids"]
 
-                if len(ids) != g.clip_count:
-                    print(f"  ⚠ Attempt {attempt+1}: group {g.index} has {len(ids)} clips "
+                # Reject any ID the model invented that isn't in our map
+                if not set(simple_ids).issubset(valid_simple):
+                    unknown = set(simple_ids) - valid_simple
+                    print(f"  ⚠ Attempt {attempt+1}: group {g.index} returned unknown IDs {unknown}. Retrying...")
+                    valid = False; break
+
+                # Translate simple IDs -> real clip IDs
+                real_ids = [id_map[s] for s in simple_ids]
+                entry["clip_ids"] = real_ids
+
+                valid_real = {c.id for c in candidates_per_group[g.index]}
+
+                if len(real_ids) != g.clip_count:
+                    print(f"  ⚠ Attempt {attempt+1}: group {g.index} has {len(real_ids)} clips "
                           f"(need {g.clip_count}). Retrying...")
                     valid = False; break
-                if len(set(ids)) != len(ids):
+                if len(set(real_ids)) != len(real_ids):
                     print(f"  ⚠ Attempt {attempt+1}: duplicate IDs in group {g.index}. Retrying...")
                     valid = False; break
-                if not set(ids).issubset(valid_ids):
-                    print(f"  ⚠ Attempt {attempt+1}: group {g.index} contains unknown clip IDs. Retrying...")
+                if not set(real_ids).issubset(valid_real):
+                    print(f"  ⚠ Attempt {attempt+1}: group {g.index} contains invalid clip IDs. Retrying...")
                     valid = False; break
-                if all_seen & set(ids):
+                if all_seen & set(real_ids):
                     print(f"  ⚠ Attempt {attempt+1}: cross-group duplicate. Retrying...")
                     valid = False; break
-                all_seen.update(ids)
+                all_seen.update(real_ids)
 
             if valid:
                 return proposed

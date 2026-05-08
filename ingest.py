@@ -153,7 +153,7 @@ async def tag_clip_async(
         for attempt in range(3):
             try:
                 response = await client.chat.completions.create(
-                    model=config.OPENAI_MODEL,
+                    model=config.VISION_MODEL,
                     max_tokens=512,
                     messages=[
                         {"role": "system", "content": TAGGING_PROMPT},

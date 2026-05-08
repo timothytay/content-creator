@@ -175,6 +175,20 @@ def get_untagged_clips() -> list[Clip]:
     ]
 
 
+def get_untagged_clips_for_source(source_id: str) -> list[Clip]:
+    with get_conn() as conn:
+        rows = conn.execute(
+            """SELECT id, source_id, clip_path, start_sec, end_sec
+               FROM clips WHERE tagged = 0 AND source_id = ?""",
+            (source_id,),
+        ).fetchall()
+    return [
+        Clip(id=r["id"], source_id=r["source_id"], clip_path=r["clip_path"],
+             start_sec=r["start_sec"], end_sec=r["end_sec"])
+        for r in rows
+    ]
+
+
 def library_stats() -> dict:
     with get_conn() as conn:
         n_sources = conn.execute("SELECT COUNT(*) FROM sources").fetchone()[0]

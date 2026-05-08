@@ -206,7 +206,15 @@ def ingest_file(source_path: str | Path):
     # 1. Hash check
     source_id = sha256_file(source_path)
     if library.source_exists(source_id):
-        print("  Already in library — skipping.")
+        pending = library.get_untagged_clips_for_source(source_id)
+        if not pending:
+            print("  Already in library — skipping.")
+            return
+        print(f"  Already ingested — retrying {len(pending)} untagged clip(s).")
+        asyncio.run(tag_all_clips_async(pending))
+        stats = library.library_stats()
+        print(f"  ✓ Done. Library: {stats['tagged']}/{stats['clips']} clips tagged "
+              f"across {stats['sources']} sources.")
         return
 
     # 2. Probe duration
